@@ -94,10 +94,14 @@
 
 (defun kube-delete (name force)
   "Delete a pod."
-  (interactive (list (kube-read-pod) (y-or-n-p "Follow? ")))
-  (let ((buf (pop-to-buffer (format "*kube delete %s*" name) nil)))
-    (async-shell-command
-     (concat kube-kubectl-path " delete pod " name (when force " --grace-period=0 --force"))))
+  (interactive (list (kube-read-pod) (y-or-n-p "Force? ")))
+  (let ((args (append `("delete" "pod" ,name) (when force '("--force"))))
+        (buf-name (generate-new-buffer-name (format "*kube delete %s*" name))))
+    (apply
+     'start-process
+     "kube-delete"
+     buf-name
+     kube-kubectl-path args))
   (kube--table-refresh))
 
 (defun kube ()
