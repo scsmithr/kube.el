@@ -170,10 +170,25 @@
   ["Actions"
    ("D" "Delete" kube-delete-run)])
 
+(define-suffix-command kube-shell-run ()
+  (interactive)
+  (kube-shell (tabulated-list-get-id)))
+
+(define-suffix-command kube-eshell-run ()
+  (interactive)
+  (kube-eshell (tabulated-list-get-id)))
+
+(define-transient-command kube-shell-popup ()
+  "Open a shell."
+  ["Actions"
+   ("e" "Eshell" kube-eshell-run)
+   ("s" "Shell" kube-shell-run)])
+
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "L") 'kube-log-popup)
     (define-key map (kbd "D") 'kube-delete-popup)
+    (define-key map (kbd "B") 'kube-shell-popup)
     map)
   "Keymap for kube-mode.")
 
@@ -194,7 +209,8 @@
   (eval-after-load 'evil-mode
     (evil-add-hjkl-bindings kube-mode-map 'normal
       (kbd "L") 'kube-log-popup
-      (kbd "D") 'kube-delete-popup))
+      (kbd "D") 'kube-delete-popup
+      (kbd "B") 'kube-shell-popup))
 
   (setq tabulated-list-format
         [("Name" 40 t)
