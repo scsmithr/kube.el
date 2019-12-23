@@ -92,6 +92,14 @@
      (concat kube-kubectl-path " logs " name (when follow " -f ") " --all-containers=true")
      buf)))
 
+(defun kube-delete (name force)
+  "Delete a pod."
+  (interactive (list (kube-read-pod) (y-or-n-p "Follow? ")))
+  (let ((buf (pop-to-buffer (format "*kube delete %s*" name) nil)))
+    (async-shell-command
+     (concat kube-kubectl-path " delete pod " name (when force " --grace-period=0 --force"))))
+  (kube--table-refresh))
+
 (defun kube ()
   "List kube pods."
   (interactive)
@@ -146,9 +154,26 @@
   ["Actions"
    ("L" "Logs" kube-logs-run)])
 
+(define-infix-argument kube-delete-force ()
+  :description "Force pod deletion"
+  :class 'transient-switch
+  :argument "--force")
+
+(define-suffix-command kube-delete-run (args)
+  (interactive (list (transient-args current-transient-command)))
+  (kube-delete (tabulated-list-get-id) (member "--force" args)))
+
+(define-transient-command kube-delete-popup ()
+  "Delete a pod."
+  ["Arguments"
+   ("--force" kube-delete-force)]
+  ["Actions"
+   ("D" "Delete" kube-delete-run)])
+
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "L") 'kube-log-popup)
+    (define-key map (kbd "D") 'kube-delete-popup)
     map)
   "Keymap for kube-mode.")
 
@@ -168,7 +193,8 @@
 
   (eval-after-load 'evil-mode
     (evil-add-hjkl-bindings kube-mode-map 'normal
-      (kbd "L") 'kube-log-popup))
+      (kbd "L") 'kube-log-popup
+      (kbd "D") 'kube-delete-popup))
 
   (setq tabulated-list-format
         [("Name" 40 t)
