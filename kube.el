@@ -47,9 +47,13 @@
 (eval-after-load 'tramp
   '(progn (kube-tramp-add-method)))
 
+(defun kube-generate-command (&rest args)
+  "Generate a kubectl command string using ARGS."
+  (concat kube-kubectl-path " " (string-join args " ")))
+
 (defun kube-run (&rest args)
   "Execute a kubectl command with ARGS."
-  (let ((command (concat kube-kubectl-path " " (string-join args " "))))
+  (let ((command (apply 'kube-generate-command args)))
     (message command)
     (shell-command-to-string command)))
 
@@ -142,6 +146,27 @@
   (let ((pods (kube--get-pods)))
     (setq tabulated-list-entries (mapcar #'kube--table-entry pods))))
 
+(defun kube-get-transient-action ()
+  "Transforms a transient command into args for kubectl."
+  (s-replace "-" " " (s-chop-prefix "kube-" (symbol-name current-transient-command))))
+
+(defun kube-generic-action (action args)
+  "Perform a generic ACTION with ARGS."
+  (interactive (list (kube-get-transient-action)
+                     (transient-args current-transient-command)))
+  (let ((name (tabulated-list-get-id)))
+    (kube-run action (string-join args " ") name)))
+
+(defun kube-async-action-with-buffer (action args)
+  "Perform async ACTION with ARGS, outputting to a buffer."
+  (interactive (list (kube-get-transient-action)
+                     (transient-args current-transient-command)))
+  (let* ((name (tabulated-list-get-id))
+         (buf (pop-to-buffer (format "*kube %s %s*" action name) nil)))
+    (async-shell-command
+     (kube-generate-command action (string-join args " ") name)
+     buf)))
+
 (define-infix-argument kube-logs-follow ()
   :description "Follow logs"
   :class 'transient-switch
@@ -151,12 +176,14 @@
   (interactive (list (transient-args current-transient-command)))
   (kube-logs (tabulated-list-get-id) (member "-f" args)))
 
-(define-transient-command kube-log-popup ()
+(define-transient-command kube-logs ()
   "Gets logs for a pod."
+  :value '("--all-containers=true")
   ["Arguments"
-   ("-f" kube-logs-follow)]
+   ("-f" kube-logs-follow)
+   ("-a" "All" "--all-containers=true")]
   ["Actions"
-   ("L" "Logs" kube-logs-run)])
+   ("L" "Logs" kube-async-action-with-buffer)])
 
 (define-infix-argument kube-delete-force ()
   :description "Force pod deletion"
@@ -190,7 +217,7 @@
 
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "L") 'kube-log-popup)
+    (define-key map (kbd "L") 'kube-logs)
     (define-key map (kbd "D") 'kube-delete-popup)
     (define-key map (kbd "B") 'kube-shell-popup)
     map)
@@ -212,7 +239,7 @@
 
   (eval-after-load 'evil-mode
     (evil-add-hjkl-bindings kube-mode-map 'normal
-      (kbd "L") 'kube-log-popup
+      (kbd "L") 'kube-logs
       (kbd "D") 'kube-delete-popup
       (kbd "B") 'kube-shell-popup))
 
