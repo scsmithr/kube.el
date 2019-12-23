@@ -85,6 +85,7 @@
 
 (defun kube-logs (name follow)
   "View logs for all containers in a pod."
+  ;; TODO: Allow for specifying container.
   (interactive (list (kube-read-pod) (y-or-n-p "Follow? ")))
   (let ((buf (pop-to-buffer (format "*kube logs %s*" name) nil)))
     (async-shell-command
@@ -129,8 +130,25 @@
   (let ((pods (kube--get-pods)))
     (setq tabulated-list-entries (mapcar #'kube--table-entry pods))))
 
+(define-infix-argument kube-logs-follow ()
+  :description "Follow logs"
+  :class 'transient-switch
+  :argument "-f")
+
+(define-suffix-command kube-logs-run (args)
+  (interactive (list (transient-args current-transient-command)))
+  (kube-logs (tabulated-list-get-id) (member "-f" args)))
+
+(define-transient-command kube-log-popup ()
+  "Gets logs for a pod."
+  ["Arguments"
+   ("-f" kube-logs-follow)]
+  ["Actions"
+   ("L" "Logs" kube-logs-run)])
+
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "L") 'kube-log-popup)
     map)
   "Keymap for kube-mode.")
 
@@ -149,7 +167,8 @@
   (use-local-map kube-mode-map)
 
   (eval-after-load 'evil-mode
-    (evil-add-hjkl-bindings kube-mode-map 'normal))
+    (evil-add-hjkl-bindings kube-mode-map 'normal
+      (kbd "L") 'kube-log-popup))
 
   (setq tabulated-list-format
         [("Name" 40 t)
