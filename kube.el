@@ -22,6 +22,7 @@
 ;;; Code:
 
 (require 'tablist)
+(require 'parse-time)
 (require 'transient)
 
 (eval-when-compile
