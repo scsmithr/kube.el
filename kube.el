@@ -130,7 +130,13 @@
                                        (alist-get 'restartCount container))
                                      containers)
                                     0))
-           (alist-get 'startTime status)))))
+           (kube--pod-age (alist-get 'startTime status))))))
+
+(defun kube--pod-age (start-time)
+  (let ((diff (time-to-seconds
+               (time-subtract (current-time)
+                              (parse-iso8601-time-string start-time)))))
+    (car (split-string (format-seconds "%yy,%dd,%hh,%mm,%ss%z" diff) ","))))
 
 (defun kube--table-refresh ()
   "Refresh table."
