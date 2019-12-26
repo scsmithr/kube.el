@@ -146,7 +146,11 @@
   (mapcar 'car (tablist-get-marked-items)))
 
 (defun kube-generic-action-with-buffer (action args)
-  "Perform ACTION async with ARGS, outputting to a buffer."
+  "Perform ACTION async with ARGS, outputting to a buffer.
+
+This will only run with the currently selected pod.
+
+TODO: Switch buffer major mode depending on the ouput format."
   (interactive (list (kube-get-transient-action)
                      (transient-args current-transient-command)))
   (let* ((name (tabulated-list-get-id))
@@ -193,6 +197,14 @@ pod'."
   ["Actions"
    ("D" "Delete" kube-generic-action)])
 
+(define-transient-command kube-command-get-pod ()
+  "Get info for a pod."
+  :value '("-o json")
+  ["Arguments"
+   ("-o" "Output format" "-o " read-string)]
+  ["Actions"
+   ("G" "Get" kube-generic-action-with-buffer)])
+
 (define-suffix-command kube-shell-selection ()
   (interactive)
   (kube-shell (tabulated-list-get-id)))
@@ -209,9 +221,10 @@ pod'."
 
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "L") 'kube-logs)
-    (define-key map (kbd "D") 'kube-delete-pod)
-    (define-key map (kbd "B") 'kube-shell)
+    (define-key map (kbd "L") 'kube-command-logs)
+    (define-key map (kbd "D") 'kube-command-delete-pod)
+    (define-key map (kbd "B") 'kube-command-shell)
+    (define-key map (kbd "G") 'kube-command-get-pod)
     map)
   "Keymap for kube-mode.")
 
@@ -233,7 +246,8 @@ pod'."
     (evil-add-hjkl-bindings kube-mode-map 'normal
       (kbd "L") 'kube-command-logs
       (kbd "D") 'kube-command-delete-pod
-      (kbd "B") 'kube-command-shell))
+      (kbd "B") 'kube-command-shell
+      (kbd "G") 'kube-command-get-pod))
 
   (setq tabulated-list-format
         [("Name" 40 t)
