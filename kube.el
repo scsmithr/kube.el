@@ -87,15 +87,6 @@
                               (format "*eshell %s*" default-directory))))
     (eshell t)))
 
-(defun kube-logs (name follow)
-  "View logs for all containers in a pod."
-  ;; TODO: Allow for specifying container.
-  (interactive (list (kube-read-pod) (y-or-n-p "Follow? ")))
-  (let ((buf (pop-to-buffer (format "*kube logs %s*" name) nil)))
-    (async-shell-command
-     (concat kube-kubectl-path " logs " name (when follow " -f ") " --all-containers=true")
-     buf)))
-
 (defun kube-delete (name force)
   "Delete a pod."
   (interactive (list (kube-read-pod) (y-or-n-p "Force? ")))
@@ -148,17 +139,14 @@
 
 (defun kube-get-transient-action ()
   "Transforms a transient command into args for kubectl."
-  (s-replace "-" " " (s-chop-prefix "kube-" (symbol-name current-transient-command))))
+  (s-replace "-" " " (s-chop-prefix "kube-command-" (symbol-name current-transient-command))))
 
-(defun kube-generic-action (action args)
-  "Perform a generic ACTION with ARGS."
-  (interactive (list (kube-get-transient-action)
-                     (transient-args current-transient-command)))
-  (let ((name (tabulated-list-get-id)))
-    (kube-run action (string-join args " ") name)))
+(defun kube-get-marked ()
+  "Return the names of marked pods."
+  (mapcar 'car (tablist-get-marked-items)))
 
-(defun kube-async-action-with-buffer (action args)
-  "Perform async ACTION with ARGS, outputting to a buffer."
+(defun kube-generic-action-with-buffer (action args)
+  "Perform ACTION async with ARGS, outputting to a buffer."
   (interactive (list (kube-get-transient-action)
                      (transient-args current-transient-command)))
   (let* ((name (tabulated-list-get-id))
@@ -167,59 +155,63 @@
      (kube-generate-command action (string-join args " ") name)
      buf)))
 
-(define-infix-argument kube-logs-follow ()
-  :description "Follow logs"
-  :class 'transient-switch
-  :argument "-f")
+(defun kube-generic-action (action args)
+  "Perform ACTION async with ARGS.
 
-(define-suffix-command kube-logs-run (args)
-  (interactive (list (transient-args current-transient-command)))
-  (kube-logs (tabulated-list-get-id) (member "-f" args)))
+All commands will be run async on the selected pods.  The command
+will be in the form of `kubectl <action> <args> <pod name(s)>'.
+ACTION may be a string containing multiple words, eg `delete
+pod'."
+  (interactive (list (kube-get-transient-action)
+                     (transient-args current-transient-command)))
+  (let* ((names (kube-get-marked))
+         (buf-name (generate-new-buffer-name (format "*kube %s %s*" action names)))
+         (args (append (split-string action) args names)))
+    (set-process-sentinel
+     (apply
+      'start-process
+      "kube-async-action"
+      buf-name
+      kube-kubectl-path args)
+     (lambda (process _signal)
+       (when (memq (process-status process) '(exit signal))
+         (kill-buffer buf-name))))))
 
-(define-transient-command kube-logs ()
+(define-transient-command kube-command-logs ()
   "Gets logs for a pod."
   :value '("--all-containers=true")
   ["Arguments"
-   ("-f" kube-logs-follow)
+   ("-f" "Follow" "-f")
    ("-a" "All" "--all-containers=true")]
   ["Actions"
-   ("L" "Logs" kube-async-action-with-buffer)])
+   ("L" "Logs" kube-generic-action-with-buffer)])
 
-(define-infix-argument kube-delete-force ()
-  :description "Force pod deletion"
-  :class 'transient-switch
-  :argument "--force")
-
-(define-suffix-command kube-delete-run (args)
-  (interactive (list (transient-args current-transient-command)))
-  (kube-delete (tabulated-list-get-id) (member "--force" args)))
-
-(define-transient-command kube-delete-popup ()
+(define-transient-command kube-command-delete-pod ()
   "Delete a pod."
   ["Arguments"
-   ("--force" kube-delete-force)]
+   ("--force" "Force delete" "--force")]
   ["Actions"
-   ("D" "Delete" kube-delete-run)])
+   ("D" "Delete" kube-generic-action)])
 
-(define-suffix-command kube-shell-run ()
+(define-suffix-command kube-shell-selection ()
   (interactive)
   (kube-shell (tabulated-list-get-id)))
 
-(define-suffix-command kube-eshell-run ()
+(define-suffix-command kube-eshell-selection ()
   (interactive)
   (kube-eshell (tabulated-list-get-id)))
 
-(define-transient-command kube-shell-popup ()
+(define-transient-command kube-command-shell ()
   "Open a shell."
   ["Actions"
-   ("e" "Eshell" kube-eshell-run)
-   ("s" "Shell" kube-shell-run)])
+   ("e" "Eshell" kube-eshell-selection)
+   ("s" "Shell" kube-shell-selection)])
 
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "L") 'kube-logs)
-    (define-key map (kbd "D") 'kube-delete-popup)
-    (define-key map (kbd "B") 'kube-shell-popup)
+    (define-key map (kbd "D") 'kube-delete-pod)
+    (define-key map (kbd "B") 'kube-shell)
     map)
   "Keymap for kube-mode.")
 
@@ -239,9 +231,9 @@
 
   (eval-after-load 'evil-mode
     (evil-add-hjkl-bindings kube-mode-map 'normal
-      (kbd "L") 'kube-logs
-      (kbd "D") 'kube-delete-popup
-      (kbd "B") 'kube-shell-popup))
+      (kbd "L") 'kube-command-logs
+      (kbd "D") 'kube-command-delete-pod
+      (kbd "B") 'kube-command-shell))
 
   (setq tabulated-list-format
         [("Name" 40 t)
