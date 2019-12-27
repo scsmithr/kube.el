@@ -88,24 +88,14 @@
                               (format "*eshell %s*" default-directory))))
     (eshell t)))
 
-(defun kube-delete (name force)
-  "Delete a pod."
-  (interactive (list (kube-read-pod) (y-or-n-p "Force? ")))
-  (let ((args (append `("delete" "pod" ,name) (when force '("--force"))))
-        (buf-name (generate-new-buffer-name (format "*kube delete %s*" name))))
-    (apply
-     'start-process
-     "kube-delete"
-     buf-name
-     kube-kubectl-path args))
-  (kube--table-refresh))
+(defvar kube--namespace nil)
 
-(defun kube ()
+(defun kube-pods (args)
   "List kube pods."
-  (interactive)
+  (interactive (list (transient-args current-transient-command)))
   (pop-to-buffer "*kube*" nil)
   (kube-mode)
-  (kube--table-refresh)
+  (setq kube--namespace (kube--flag-value-from-args "-n" args))
   (tablist-revert))
 
 (defun kube--table-entry (pod)
@@ -144,6 +134,17 @@
   (let ((pods (kube--get-pods)))
     (setq tabulated-list-entries (mapcar #'kube--table-entry pods))))
 
+(defun kube--get-pods ()
+  "Get an assocation list of pods."
+  (let* ((json-object-type 'alist)
+         (json-array-type 'list)
+         (args '("get" "pods" "-o" "json"))
+         (output (apply 'kube-run (if kube--namespace
+                                      (append args (list "-n" kube--namespace))
+                                    args)))
+         (json (json-read-from-string output)))
+    (alist-get 'items json)))
+
 (defun kube-get-transient-action ()
   "Transforms a transient command into args for kubectl."
   (s-replace "-" " " (s-chop-prefix "kube-command-" (symbol-name current-transient-command))))
@@ -169,10 +170,10 @@ TODO: Switch buffer major mode depending on the ouput format."
 (defun kube-generic-action (action args)
   "Perform ACTION async with ARGS.
 
-All commands will be run async on the selected pods.  The command
-will be in the form of `kubectl <action> <args> <pod name(s)>'.
-ACTION may be a string containing multiple words, eg `delete
-pod'."
+All commands will be run async for the selected pods.  The
+command will be in the form of `kubectl <action> <args> <pod
+name(s)>'.  ACTION may be a string containing multiple words, eg
+`delete pod'."
   (interactive (list (kube-get-transient-action)
                      (transient-args current-transient-command)))
   (let* ((names (kube-get-marked))
@@ -187,6 +188,15 @@ pod'."
      (lambda (process _signal)
        (when (memq (process-status process) '(exit signal))
          (kill-buffer buf-name))))))
+
+(defun kube--flag-value-from-args (flag args)
+  "Parse the FLAG value from ARGS."
+  (let* ((args (seq-reduce
+                (lambda (initial elt)
+                  (append initial (split-string elt)))
+                args nil))
+         (tail (member flag args)))
+    (nth 1 tail)))
 
 (define-transient-command kube-command-logs ()
   "Gets logs for a pod."
@@ -226,6 +236,14 @@ pod'."
    ("e" "Eshell" kube-eshell-selection)
    ("s" "Shell" kube-shell-selection)])
 
+;;;###autoload (autoload 'kube "kube" nil t)
+(define-transient-command kube ()
+  "Kube dispatch."
+  ["Arguments"
+   ("-n" "Namespace" "-n " read-string)]
+  ["Kube"
+   ("p" "Pods" kube-pods)])
+
 (defvar kube-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "L") 'kube-command-logs)
@@ -234,14 +252,6 @@ pod'."
     (define-key map (kbd "G") 'kube-command-get-pod)
     map)
   "Keymap for kube-mode.")
-
-(defun kube--get-pods ()
-  "Get an assocation list of pods."
-  (let* ((json-object-type 'alist)
-         (json-array-type 'list)
-         (output (kube-run "get" "pods" "-o" "json"))
-         (json (json-read-from-string output)))
-    (alist-get 'items json)))
 
 (define-derived-mode kube-mode tabulated-list-mode "kube"
   "Kube derived mode"
